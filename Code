@@ -1,0 +1,164 @@
+#include <SPI.h>
+#include <MFRC522.h>
+#include <Servo.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+
+
+// OLED Display Settings
+#define SCREEN_WIDTH 128
+#define SCREEN_HEIGHT 64
+#define OLED_RESET    -1
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+
+
+// Define RFID module connections
+#define SS_PIN 10
+#define RST_PIN 9
+
+
+// Define Servo
+Servo doorServo;
+#define SERVO_PIN 8
+
+
+// Define Buzzer
+#define BUZZER_PIN 7 
+
+
+// Create RFID instance
+MFRC522 rfid(SS_PIN, RST_PIN);
+
+
+// Define multiple authorized card UIDs
+const byte authorizedCards[][4] = {
+  {0x13, 0x14, 0x3C, 0x0F},  // Card 1
+  {0xBC, 0xBC, 0x20, 0x31},  // Card 2
+  {0xAA, 0x57, 0xB3, 0x81}   // Card 3
+};
+const int totalCards = sizeof(authorizedCards) / sizeof(authorizedCards[0]);
+
+
+void setup() {
+  Serial.begin(9600);
+  SPI.begin(); 
+  rfid.PCD_Init(); 
+
+
+  // Initialize OLED Display
+  if (!display.begin(SSD1306_SWITCHCAPVCC, 0x3C)) {
+      Serial.println(F("SSD1306 allocation failed"));
+      for (;;);
+  }
+  display.clearDisplay();
+  display.setTextSize(1);
+  display.setTextColor(WHITE);
+  display.setCursor(10, 25);
+  display.println("System Ready!");
+  display.display();
+  delay(2000);
+
+
+  doorServo.attach(SERVO_PIN);
+  doorServo.write(0);  // Lock position
+
+
+  pinMode(BUZZER_PIN, OUTPUT);
+  digitalWrite(BUZZER_PIN, LOW);
+
+
+  Serial.println("Scan your RFID card...");
+  showMessage("Scan card");
+}
+
+
+void loop() {
+  // Reinitialize RFID module if needed
+  rfid.PCD_Init();
+
+
+  // Check if an RFID card is present
+  if (!rfid.PICC_IsNewCardPresent() || !rfid.PICC_ReadCardSerial()) {
+      return;
+  }
+
+
+  Serial.print("Card UID: ");
+  bool authorized = false;
+
+
+  for (int i = 0; i < totalCards; i++) {
+      bool match = true;
+      for (byte j = 0; j < 4; j++) {
+          Serial.print(rfid.uid.uidByte[j], HEX);
+          Serial.print(" ");
+          if (rfid.uid.uidByte[j] != authorizedCards[i][j]) {
+              match = false;
+          }
+      }
+      Serial.println();
+
+
+      if (match) {
+          authorized = true;
+          break;
+      }
+  }
+
+
+  if (authorized) {
+      Serial.println("Access Granted! Unlocking door...");
+      showMessage("Access Granted!");
+      grantAccess();
+  } else {
+      Serial.println("Access Denied!");
+      showMessage("Access Denied!");
+      denyAccess();
+  }
+
+
+  delay(2000);
+  showMessage("Scan card!");
+
+
+  rfid.PICC_HaltA();
+  rfid.PCD_StopCrypto1();
+}
+
+
+void grantAccess() {
+  digitalWrite(BUZZER_PIN, HIGH);
+  delay(100);
+  digitalWrite(BUZZER_PIN, LOW);
+  delay(100);
+  digitalWrite(BUZZER_PIN, HIGH);
+  delay(100);
+  digitalWrite(BUZZER_PIN, LOW);
+
+
+  doorServo.write(90);
+  delay(5000);
+  doorServo.write(0);
+  Serial.println("Door locked.");
+}
+
+
+void denyAccess() {
+  digitalWrite(BUZZER_PIN, HIGH);
+  delay(1000);
+  digitalWrite(BUZZER_PIN, LOW);
+}
+
+
+void showMessage(String message) {
+  display.clearDisplay();
+  display.setTextSize(2);
+  display.setTextColor(WHITE);
+  display.setCursor(10, 25);
+  display.println(message);
+  display.display();
+}
+
+
+
